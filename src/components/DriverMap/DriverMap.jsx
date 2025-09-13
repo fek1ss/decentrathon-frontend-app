@@ -15,6 +15,8 @@ import styles from './styles.module.scss';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
+import DemandHeatmap from '../DemandHeatmap';
+import BestSpot from '../BestSpot';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -41,6 +43,7 @@ const DriverMap = () => {
     timeout: 10000,
     maximumAge: 10000,
   });
+  const [demandData, setDemandData] = useState([]);
 
   const [position, setPosition] = useState([43.238949, 76.889709]);
 
@@ -48,6 +51,12 @@ const DriverMap = () => {
     if (geo.latitude && geo.longitude) {
       setPosition([geo.latitude, geo.longitude]);
     }
+    fetch("/mock/mock_geo.json")
+    .then((res) => res.json())
+    .then((data) => {
+      console.log("demandData raw:", data);
+      setDemandData(data)
+    });
   }, [geo.latitude, geo.longitude]);
 
   return (
@@ -70,6 +79,9 @@ const DriverMap = () => {
           </Marker>
 
           <RecenterMap center={position} />
+          <DemandHeatmap points={demandData} />
+          <BestSpot points={demandData} driverPos={position} />
+
           <ScaleControl position="bottomleft" />
         </MapContainer>
       </div>
