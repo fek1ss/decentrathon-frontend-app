@@ -58,6 +58,7 @@ function RecenterMap({ center }) {
 
 const DriverMap = () => {
   const [demandData, setDemandData] = useState([]);
+  const [bestSpot, setBestSpot] = useState(null);
 
   const geo = useGeolocation({
     enableHighAccuracy: true,
@@ -68,34 +69,43 @@ const DriverMap = () => {
   const [position, setPosition] = useState([43.238949, 76.889709]);
 
   useEffect(() => {
+    console.log("geo from useEffect:", geo);
     if (geo.latitude && geo.longitude) {
       setPosition([geo.latitude, geo.longitude]);
-    }
 
-    fetch('/mock/mock_geo.json')
-      .then(res => res.json())
-      .then(data => {
-        setDemandData(data);
+      // рекомендации (много точек)
+      fetch("http://localhost:3000/drivers/recommendations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lat: geo.latitude,
+          lng: geo.longitude,
+        }),
       })
-      .catch(err => console.error(err));
+        .then(res => res.json())
+        .then(data => {
+          console.log("Рекомендации:", data);
+          setDemandData(data.points || []); // проверить ключ!
+        })
+        .catch(err => console.error(err));
+
+      // лучшее место (одна точка)
+      fetch("http://localhost:3000/drivers/best-demand", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lat: geo.latitude,
+          lng: geo.longitude,
+        }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log("Лучшее место:", data);
+          setBestSpot(data); // ожидаем { lat, lng }
+        })
+        .catch(err => console.error(err));
+    }
   }, [geo.latitude, geo.longitude]);
-
-  // шаг 1: делим на сетку
-  const gridSize = 0.01;
-  const gridCounts = {};
-
-  demandData.forEach(p => {
-    const key = `${Math.floor(p.lat / gridSize)}-${Math.floor(p.lng / gridSize)}`;
-    if (!gridCounts[key])
-      gridCounts[key] = { count: 0, lat: p.lat, lng: p.lng };
-    gridCounts[key].count += 1;
-  });
-
-  // шаг 2: находим лучший квадрат
-  const bestSpot = Object.values(gridCounts).reduce(
-    (a, b) => (b.count > a.count ? b : a),
-    { count: 0, lat: 0, lng: 0 },
-  );
 
   return (
     <div className={styles.driverMap}>
@@ -105,7 +115,7 @@ const DriverMap = () => {
           zoom={13}
           className={styles.mapContainer}
           scrollWheelZoom
-          style={{ width: '500px' }}
+          style={{ width: "500px" }}
         >
           <TileLayer
             attribution="&copy; OpenStreetMap contributors"
@@ -120,7 +130,7 @@ const DriverMap = () => {
           {/* Маркеры точек спроса */}
           {demandData.map((point, index) => (
             <Marker
-              key={`${point.id}-${index}`} // уникальный ключ
+              key={`${point.id || index}`} // уникальный ключ
               position={[point.lat, point.lng]}
             >
               <Popup>Возможный заказ</Popup>
@@ -128,7 +138,7 @@ const DriverMap = () => {
           ))}
 
           {/* Маркер лучшего места */}
-          {bestSpot.count > 0 && (
+          {bestSpot && bestSpot.lat && bestSpot.lng && (
             <Marker
               position={[bestSpot.lat, bestSpot.lng]}
               icon={bestSpotIcon}
@@ -145,18 +155,16 @@ const DriverMap = () => {
       {/* Нижняя панель */}
       <div className={styles.bottomPanel}>
         <div>
-          Центр карты: {position[0].toFixed(5)},{' '}
-          {position[1].toFixed(5)}
+          Центр карты: {position[0].toFixed(5)}, {position[1].toFixed(5)}
         </div>
         <div className={styles.zoomInfo}>Zoom: 13</div>
         {geo.error && (
-          <div className={styles.error}>
-            Ошибка: {geo.error.message}
-          </div>
+          <div className={styles.error}>Ошибка: {geo.error.message}</div>
         )}
       </div>
     </div>
   );
 };
+
 
 export default DriverMap;
