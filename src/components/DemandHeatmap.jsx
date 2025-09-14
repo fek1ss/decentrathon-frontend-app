@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useMap } from "react-leaflet";
+import L from "leaflet";
 import "leaflet.heat";
 
 const DemandHeatmap = ({ points = [] }) => {
@@ -8,10 +9,8 @@ const DemandHeatmap = ({ points = [] }) => {
   useEffect(() => {
     if (!map || !points.length) return;
 
-    // Преобразуем точки: [lat, lng, intensity]
     const latlngs = points.map(p => [p.lat, p.lng, 0.5]);
-
-    const heat = window.L.heatLayer(latlngs, {
+    const heat = L.heatLayer(latlngs, {
       radius: 25,
       blur: 15,
       maxZoom: 17,

@@ -1,4 +1,5 @@
 import { Marker, Popup } from "react-leaflet";
+import L from "leaflet";
 
 const BestSpot = ({ points = [], driverPos }) => {
   if (!points.length) return null;
@@ -7,10 +8,7 @@ const BestSpot = ({ points = [], driverPos }) => {
   let bestDist = Infinity;
 
   points.forEach(p => {
-    const dist = Math.sqrt(
-      Math.pow(driverPos[0] - p.lat, 2) +
-      Math.pow(driverPos[1] - p.lng, 2)
-    );
+    const dist = L.latLng(driverPos).distanceTo(L.latLng(p.lat, p.lng));
     if (dist < bestDist) {
       bestDist = dist;
       best = p;
@@ -25,3 +23,4 @@ const BestSpot = ({ points = [], driverPos }) => {
 };
 
 export default BestSpot;
+  
