@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Realtime Tracking Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-success { background-color: #28a745; color: white; }
+        .btn-danger { background-color: #dc3545; color: white; }
+        .btn-secondary { background-color: #6c757d; color: white; }
+        input, select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 5px;
+        }
+        .location-input {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+        .log-info { color: #007bff; }
+        .log-success { color: #28a745; }
+        .log-error { color: #dc3545; }
+        .log-warning { color: #ffc107; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Realtime Tracking Client</h1>
+        
+        <div id="status" class="status disconnected">
+            Disconnected
+        </div>
+
+        <div class="controls">
+            <button id="connectBtn" class="btn-primary">Connect</button>
+            <button id="disconnectBtn" class="btn-danger" disabled>Disconnect</button>
+            <button id="startTrackingBtn" class="btn-success" disabled>Start Tracking</button>
+            <button id="stopTrackingBtn" class="btn-secondary" disabled>Stop Tracking</button>
+        </div>
+
+        <div class="location-input">
+            <label>Current Location:</label>
+            <input type="number" id="currentLat" placeholder="Latitude" value="51.09546" step="0.000001">
+            <input type="number" id="currentLng" placeholder="Longitude" value="71.42753" step="0.000001">
+            <input type="number" id="currentAlt" placeholder="Altitude" value="350" step="0.1">
+            <input type="number" id="currentSpd" placeholder="Speed" value="0" step="0.1">
+            <input type="number" id="currentAzm" placeholder="Azimuth" value="0" step="0.1">
+        </div>
+
+        <div class="location-input">
+            <label>Destination:</label>
+            <input type="number" id="destLat" placeholder="Latitude" value="51.0982" step="0.000001">
+            <input type="number" id="destLng" placeholder="Longitude" value="71.41295" step="0.000001">
+            <select id="profile">
+                <option value="driving">Driving</option>
+                <option value="walking">Walking</option>
+                <option value="cycling">Cycling</option>
+            </select>
+            <button id="requestRouteBtn" class="btn-primary" disabled>Request Route</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Log</h2>
+        <div id="log" class="log"></div>
+        <button id="clearLogBtn" class="btn-secondary">Clear Log</button>
+    </div>
+
+    <script>
+        let ws = null;
+        let clientId = null;
+        let isTracking = false;
+
+        const statusEl = document.getElementById('status');
+        const logEl = document.getElementById('log');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const startTrackingBtn = document.getElementById('startTrackingBtn');
+        const stopTrackingBtn = document.getElementById('stopTrackingBtn');
+        const requestRouteBtn = document.getElementById('requestRouteBtn');
+        const clearLogBtn = document.getElementById('clearLogBtn');
+
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function updateStatus(connected) {
+            if (connected) {
+                statusEl.className = 'status connected';
+                statusEl.textContent = `Connected (${clientId})`;
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                startTrackingBtn.disabled = false;
+                requestRouteBtn.disabled = false;
+            } else {
+                statusEl.className = 'status disconnected';
+                statusEl.textContent = 'Disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                startTrackingBtn.disabled = true;
+                stopTrackingBtn.disabled = true;
+                requestRouteBtn.disabled = true;
+            }
+        }
+
+        function connect() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                log('Connected to WebSocket server', 'success');
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const message = JSON.parse(event.data);
+                    handleMessage(message);
+                } catch (error) {
+                    log(`Error parsing message: ${error.message}`, 'error');
+                }
+            };
+            
+            ws.onclose = function() {
+                log('Disconnected from WebSocket server', 'warning');
+                updateStatus(false);
+                ws = null;
+                clientId = null;
+            };
+            
+            ws.onerror = function(error) {
+                log(`WebSocket error: ${error}`, 'error');
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        function handleMessage(message) {
+            log(`Received: ${message.type}`, 'info');
+            
+            switch (message.type) {
+                case 'connection':
+                    clientId = message.data.clientId;
+                    updateStatus(true);
+                    log(`Client ID: ${clientId}`, 'success');
+                    break;
+                    
+                case 'location_update':
+                    log(`Location update from ${message.data.clientId}`, 'info');
+                    break;
+                    
+                case 'route_response':
+                    log(`Route received: ${message.data.distance}m, ${message.data.duration}s`, 'success');
+                    break;
+                    
+                case 'ping':
+                    if (message.data.request === 'pong') {
+                        sendMessage({ type: 'pong', data: {}, timestamp: Date.now() });
+                    } else if (message.data.request === 'location_update') {
+                        sendLocationUpdate();
+                    }
+                    break;
+                    
+                case 'error':
+                    log(`Error: ${message.data.error}`, 'error');
+                    break;
+            }
+        }
+
+        function sendMessage(message) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(message));
+            }
+        }
+
+        function sendLocationUpdate() {
+            const location = {
+                lat: parseFloat(document.getElementById('currentLat').value),
+                lng: parseFloat(document.getElementById('currentLng').value),
+                alt: parseFloat(document.getElementById('currentAlt').value),
+                spd: parseFloat(document.getElementById('currentSpd').value),
+                azm: parseFloat(document.getElementById('currentAzm').value),
+            };
+            
+            sendMessage({
+                type: 'location_update',
+                data: location,
+                timestamp: Date.now(),
+            });
+            
+            log(`Sent location: ${location.lat}, ${location.lng}`, 'info');
+        }
+
+        function startTracking() {
+            const location = {
+                lat: parseFloat(document.getElementById('currentLat').value),
+                lng: parseFloat(document.getElementById('currentLng').value),
+                alt: parseFloat(document.getElementById('currentAlt').value),
+                spd: parseFloat(document.getElementById('currentSpd').value),
+                azm: parseFloat(document.getElementById('currentAzm').value),
+            };
+            
+            sendMessage({
+                type: 'start_tracking',
+                data: { location },
+                timestamp: Date.now(),
+            });
+            
+            isTracking = true;
+            startTrackingBtn.disabled = true;
+            stopTrackingBtn.disabled = false;
+            log('Started tracking', 'success');
+        }
+
+        function stopTracking() {
+            sendMessage({
+                type: 'stop_tracking',
+                data: {},
+                timestamp: Date.now(),
+            });
+            
+            isTracking = false;
+            startTrackingBtn.disabled = false;
+            stopTrackingBtn.disabled = true;
+            log('Stopped tracking', 'warning');
+        }
+
+        function requestRoute() {
+            const destination = {
+                lat: parseFloat(document.getElementById('destLat').value),
+                lng: parseFloat(document.getElementById('destLng').value),
+            };
+            
+            const profile = document.getElementById('profile').value;
+            
+            sendMessage({
+                type: 'route_request',
+                data: { destination, profile },
+                timestamp: Date.now(),
+            });
+            
+            log(`Requested route to ${destination.lat}, ${destination.lng} (${profile})`, 'info');
+        }
+
+        // Event listeners
+        connectBtn.addEventListener('click', connect);
+        disconnectBtn.addEventListener('click', disconnect);
+        startTrackingBtn.addEventListener('click', startTracking);
+        stopTrackingBtn.addEventListener('click', stopTracking);
+        requestRouteBtn.addEventListener('click', requestRoute);
+        clearLogBtn.addEventListener('click', () => {
+            logEl.innerHTML = '';
+        });
+
+        // Auto-connect on page load
+        window.addEventListener('load', () => {
+            log('Page loaded, ready to connect', 'info');
+        });
+    </script>
+</body>
+</html>
